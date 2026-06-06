@@ -1,7 +1,7 @@
 {
-  "name": "Mes Tâches Mignones 🌸",
+  "name": "Mes Tâches 🌸",
   "short_name": "Tâches",
-  "description": "Planning ménager kawaii pour la maison",
+  "description": "Planning ménager kawaii de la maison",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#fff5f8",

@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    container_name: mes-taches
+    ports:
+      - "${HOST_PORT:-8899}:8080"    # 8899 par défaut (8080 est pris par ETC Collector)
+    volumes:
+      - ./data:/app/data        # la base SQLite persiste ici (backup = copier ce dossier)
+    environment:
+      - PORT=8080
+      - DB_PATH=/app/data/tasks.db
+    restart: unless-stopped
