@@ -6,13 +6,14 @@ function listMembers() {
 }
 
 // period_key dépend de la fréquence : semaine pour daily, mois pour monthly.
-function periodKeyForTask(task) {
-  return task.freq === 'monthly' ? getMonthKey() : getWeekKey();
+// `ref` (Date optionnelle) permet de calculer pour un autre jour que today.
+function periodKeyForTask(task, ref) {
+  return task.freq === 'monthly' ? getMonthKey(ref) : getWeekKey(ref);
 }
 
 // Enrichit une tâche avec son état de complétion + le membre résolu pour la rotation.
-function enrichTask(task, members, weekIndex) {
-  const periodKey = periodKeyForTask(task);
+function enrichTask(task, members, weekIndex, ref) {
+  const periodKey = periodKeyForTask(task, ref);
   const comp = db.prepare(
     'SELECT member_id, done_at FROM completions WHERE task_id = ? AND period_key = ?'
   ).get(task.id, periodKey);

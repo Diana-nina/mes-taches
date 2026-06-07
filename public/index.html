@@ -413,6 +413,19 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
 @media(max-width:560px){.grid,.mgrid{grid-template-columns:1fr;}.day .d-name{font-size:14px;}.nav-btn{font-size:10px;}}
 
+/* ===== Barre de jours globale ===== */
+.daybar{display:flex;align-items:stretch;gap:5px;padding:0 clamp(10px,2vw,22px) 6px;}
+.db-arrow{flex-shrink:0;width:34px;border:none;border-radius:12px;background:var(--paper);color:var(--coral-deep);font-size:20px;font-weight:900;cursor:pointer;box-shadow:var(--elev-sm);line-height:1;}
+.db-arrow:active{transform:scale(.9);}
+.db-days{flex:1;display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+.db-day{background:var(--paper);border:2px solid transparent;border-radius:12px;padding:6px 2px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;box-shadow:var(--elev-sm);transition:transform .12s;}
+.db-day:active{transform:scale(.94);}
+.db-day .db-n{font-size:10.5px;font-weight:800;color:var(--muted);text-transform:uppercase;}
+.db-day .db-num{font-size:15px;font-weight:900;color:var(--ink);}
+.db-day.today{border-color:var(--coral-soft);}
+.db-day.active{background:var(--coral);border-color:var(--coral);}
+.db-day.active .db-n,.db-day.active .db-num{color:#fff;}
+
 /* ===== Calendrier historique ===== */
 .cal-nav{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-card);padding:8px 10px;box-shadow:var(--elev-sm);}
 .cal-arrow{width:40px;height:40px;border:none;border-radius:12px;background:var(--coral-soft);color:var(--coral-deep);font-size:22px;font-weight:900;cursor:pointer;line-height:1;}
@@ -424,6 +437,8 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;margin-top:10px;}
 .cal-day{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:7px;min-height:90px;display:flex;flex-direction:column;gap:5px;}
 .cal-day.is-today{border-color:var(--coral);box-shadow:0 0 0 2px var(--coral-soft) inset;}
+.cal-day.is-sel{box-shadow:0 0 0 2px var(--coral) inset;}
+.cal-day{cursor:pointer;}
 .cal-dh{display:flex;align-items:center;justify-content:space-between;font-weight:800;font-size:11.5px;color:var(--muted);}
 .cal-cnt{background:var(--coral);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:900;}
 .cal-empty{color:var(--faint);text-align:center;font-size:14px;margin:auto 0;}
@@ -498,6 +513,9 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
     </div>
   </header>
 
+  <!-- BARRE DE JOURS GLOBALE (pilote tâches / historique / deen) -->
+  <div class="daybar" id="dayBar"></div>
+
   <!-- ACCUEIL -->
   <section id="viewHome" class="view">
     <div class="scroll" id="homeScroll"></div>
@@ -505,7 +523,6 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
   <!-- TÂCHES -->
   <section id="viewTasks" class="view hidden">
-    <div class="weekbar" id="weekbar"></div>
     <div class="scroll" id="tasksScroll"></div>
   </section>
 
@@ -964,10 +981,32 @@ const Mock=(()=>{
 })();
 
 /* ════════ ÉTAT ════════ */
-let board=null,currentDay=0,currentView='tasks';
+let board=null,currentDay=0,currentView='tasks',selDate=new Date();
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function loadBoard(){board=await api.get('/board?day='+currentDay);}
+async function loadBoard(){board=await api.get('/board?date='+dkey(selDate)+'&day='+currentDay);}
+
+/* ════════ BARRE DE JOURS GLOBALE ════════ */
+function renderDayBar(){
+  const bar=$('dayBar');if(!bar)return;
+  const mon=mondayOf(selDate),selK=dkey(selDate),todK=todayKey();
+  let h='<button class="db-arrow" data-d="-7" aria-label="Semaine précédente">‹</button><div class="db-days">';
+  for(let i=0;i<7;i++){const d=addDays(mon,i),dk=dkey(d);
+    h+=`<button class="db-day${dk===selK?' active':''}${dk===todK?' today':''}" data-dk="${dk}"><span class="db-n">${DAYS[i].short}</span><span class="db-num">${d.getDate()}</span></button>`;}
+  h+='</div><button class="db-arrow" data-d="7" aria-label="Semaine suivante">›</button>';
+  bar.innerHTML=h;
+  bar.querySelectorAll('.db-day').forEach(b=>b.onclick=()=>selectDate(b.dataset.dk));
+  bar.querySelectorAll('.db-arrow').forEach(b=>b.onclick=()=>selectDate(dkey(addDays(selDate,Number(b.dataset.d)))));
+}
+async function selectDate(dk){
+  selDate=new Date(dk+'T12:00:00');currentDay=(selDate.getDay()+6)%7;
+  await loadBoard();renderDayBar();
+  if(currentView==='tasks')renderTasksView();
+  else if(currentView==='history')renderHistory();
+  else if(currentView==='home')renderHome();
+  else if(currentView==='deen'){await refreshDeenProfile(deenProfileGet());renderDeen();}
+  else if(currentView==='entretien')renderEntretien();
+}
 
 /* ════════ HEADER / DATE ════════ */
 function renderDate(){
@@ -992,15 +1031,15 @@ function renderWeek(){
 }
 
 /* ════════ TASKS ════════ */
-const isLate=t=>!t.done&&t.freq==='daily'&&currentDay<board.today&&currentDay===t.day_idx;
+const isLate=t=>!t.done&&t.freq==='daily'&&dkey(selDate)<todayKey();
 
 function renderTasksView(){
-  renderWeek();renderProgress();
+  renderProgress();
   const s=$('tasksScroll');s.innerHTML='';
   const daily=board.daily||[];
   const doneCount=daily.filter(t=>t.done).length;
 
-  s.appendChild(secHead(currentDay===board.today?"Aujourd'hui":DAYS[currentDay].name,
+  s.appendChild(secHead(dkey(selDate)===todayKey()?"Aujourd'hui":DAYS[currentDay].name,
     daily.length?`<b>${doneCount}</b> / ${daily.length} faites`:''));
   const grid=document.createElement('div');grid.className='grid';
   if(!daily.length)grid.appendChild(emptyBox('🌼','Aucune tâche prévue.'));
@@ -1037,16 +1076,16 @@ function emptyBox(emo,txt){const d=document.createElement('div');d.className='em
 async function toggleTask(task,el){
   const was=task.done;el.classList.toggle('done',!was);task.done=!was;
   try{
-    if(!was){const res=await api.post('/completions',{task_id:task.id,member_id:null});
+    if(!was){const res=await api.post('/completions',{task_id:task.id,member_id:null,date:dkey(selDate)});
       burst(el);if(res&&res.dayComplete){setTimeout(()=>{showToast('Journée complète, bravo !');bigConfetti();},240);}}
-    else await api.del('/completions',{task_id:task.id});
+    else await api.del('/completions',{task_id:task.id,date:dkey(selDate)});
     await loadBoard();refreshAfterTask();
   }catch(e){showToast('Erreur réseau');try{await loadBoard();refreshAfterTask();}catch(_){}}
 }
 function refreshAfterTask(){if(currentView==='home')renderHome();else renderTasksView();}
 async function resetDay(){
   if(currentView!=='tasks'||!board)return;
-  for(const t of(board.daily||[]))if(t.done)await api.del('/completions',{task_id:t.id});
+  for(const t of(board.daily||[]))if(t.done)await api.del('/completions',{task_id:t.id,date:dkey(selDate)});
   showToast('Jour réinitialisé');await loadBoard();renderTasksView();
 }
 
@@ -1056,6 +1095,9 @@ async function switchView(v){
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
   ['Home','Tasks','Entretien','Deen','Shopping','Notes','History'].forEach(n=>$('view'+n).classList.toggle('hidden',n.toLowerCase()!==v));
   $('fab').classList.toggle('hidden',v!=='tasks');
+  // Barre de jours : visible sur les pages liées au temps.
+  $('dayBar').style.display=(v==='shopping'||v==='notes')?'none':'flex';
+  renderDayBar();
   if(v==='home')renderHome();
   else if(v==='tasks'){await loadBoard();renderTasksView();}
   else if(v==='entretien')renderEntretien();
@@ -1108,34 +1150,33 @@ $('shopPrice').addEventListener('keydown',e=>{if(e.key==='Enter')addShopItem();}
 
 /* ════════ HISTORIQUE + CALENDRIER ════════ */
 const mondayOf=d=>addDays(d,-((d.getDay()+6)%7));
-let histMonday=null; // Date du lundi de la semaine affichée
 function fmtDayMonth(d){return d.getDate()+' '+['jan','fév','mar','avr','mai','juin','juil','aoû','sep','oct','nov','déc'][d.getMonth()];}
 
 async function renderHistory(){
-  if(!histMonday)histMonday=mondayOf(new Date());
   const s=$('histScroll');s.innerHTML='';
 
-  // — Sélecteur de semaine —
-  const mon=histMonday, sun=addDays(mon,6);
+  // — Sélecteur de semaine (piloté par selDate, comme la barre de jours) —
+  const mon=mondayOf(selDate), sun=addDays(mon,6);
   const isThis=mondayKey(mon)===mondayKey(new Date());
   const nav=document.createElement('div');nav.className='cal-nav';
-  nav.innerHTML=`<button class="cal-arrow" data-d="-1">‹</button>
+  nav.innerHTML=`<button class="cal-arrow" data-d="-7">‹</button>
     <div class="cal-range"><b>${fmtDayMonth(mon)} – ${fmtDayMonth(sun)}</b><small>${mon.getFullYear()}${isThis?' · cette semaine':''}</small></div>
-    <button class="cal-arrow" data-d="1">›</button>`;
-  nav.querySelector('[data-d="-1"]').onclick=()=>{histMonday=addDays(histMonday,-7);renderHistory();};
-  nav.querySelector('[data-d="1"]').onclick=()=>{histMonday=addDays(histMonday,7);renderHistory();};
+    <button class="cal-arrow" data-d="7">›</button>`;
+  nav.querySelector('[data-d="-7"]').onclick=()=>selectDate(dkey(addDays(selDate,-7)));
+  nav.querySelector('[data-d="7"]').onclick=()=>selectDate(dkey(addDays(selDate,7)));
   s.appendChild(nav);
-  if(!isThis){const t=document.createElement('button');t.className='cal-today';t.textContent='↺ Revenir à cette semaine';t.onclick=()=>{histMonday=mondayOf(new Date());renderHistory();};s.appendChild(t);}
+  if(!isThis){const t=document.createElement('button');t.className='cal-today';t.textContent='↺ Revenir à cette semaine';t.onclick=()=>selectDate(todayKey());s.appendChild(t);}
 
   // — Données de la semaine (journal daté) —
   let acts=[];try{acts=await api.get('/activity?week='+mondayKey(mon));}catch(e){}
   const byDay={};acts.forEach(a=>{(byDay[a.date]=byDay[a.date]||[]).push(a);});
 
   const grid=document.createElement('div');grid.className='cal-grid';
-  const todayK=todayKey();
+  const todayK=todayKey(),selK=dkey(selDate);
   for(let i=0;i<7;i++){
     const day=addDays(mon,i),dk=dkey(day),items=byDay[dk]||[];
-    const col=document.createElement('div');col.className='cal-day'+(dk===todayK?' is-today':'');
+    const col=document.createElement('div');col.className='cal-day'+(dk===todayK?' is-today':'')+(dk===selK?' is-sel':'');
+    col.onclick=()=>selectDate(dk);
     let inner=`<div class="cal-dh"><span>${DAYS[i].short} ${day.getDate()}</span>${items.length?`<span class="cal-cnt">${items.length}</span>`:''}</div>`;
     if(!items.length)inner+=`<div class="cal-empty">—</div>`;
     else inner+=items.map(a=>`<div class="cal-item"><span class="ci-e">${esc(a.emoji||'✓')}</span><span class="ci-n">${esc(a.label)}</span>${a.member_emoji?`<span class="ci-m">${a.member_emoji}</span>`:''}</div>`).join('');
@@ -1296,8 +1337,7 @@ async function renderHome(){
   const s=$('homeScroll');s.innerHTML='';
   // 1) Horaires de prière (si activés dans les réglages)
   if(prayersEnabled()){const mwqSlot=document.createElement('div');mwqSlot.id='mwqSlot';mwqSlot.innerHTML=mwqSkeleton();s.appendChild(mwqSlot);fillMawaqit();}
-  // 2) Tâches du jour
-  if(board)currentDay=board.today;
+  // 2) Tâches du jour (du jour sélectionné)
   try{await loadBoard();}catch(e){}
   renderProgress();
   // 2) KPIs globaux
@@ -1769,7 +1809,8 @@ setInterval(renderDate,60000);
   try{board=await realFetch('GET','/board?day=0');}catch(e){USE_MOCK=true;}
   try{
     applyMascot();
-    await loadBoard();currentDay=board.today;await loadBoard();
+    selDate=new Date();currentDay=(selDate.getDay()+6)%7;
+    await loadBoard();
     await Promise.all([loadDeen(),loadEntretien(),loadNotes(),loadProfiles()]);
     applyMascot();
     currentView='tasks';switchView('home');

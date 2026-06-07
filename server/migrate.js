@@ -113,6 +113,10 @@ function migrate() {
     CREATE INDEX IF NOT EXISTS idx_activity_date ON activity(date);
     CREATE INDEX IF NOT EXISTS idx_activity_kind_ref_date ON activity(kind, ref, date);
   `);
+
+  // Colonne `date` sur tasks pour les tâches ponctuelles (freq='once'). ALTER idempotent.
+  const cols = db.prepare(`PRAGMA table_info(tasks)`).all().map(c => c.name);
+  if (!cols.includes('date')) db.exec(`ALTER TABLE tasks ADD COLUMN date TEXT`);
 }
 
 module.exports = migrate;
