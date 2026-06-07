@@ -4,7 +4,8 @@ const { listMembers } = require('../helpers');
 const { getMonday } = require('../rollover');
 const router = express.Router();
 
-// Borne basse (instant UTC, format SQLite) pour la fenêtre demandée.
+// Borne basse (heure LOCALE, format SQLite) pour la fenêtre demandée.
+// (done_at est désormais stocké en heure locale via datetime('now','localtime').)
 function windowStart(range) {
   const now = new Date();
   let d;
@@ -13,7 +14,8 @@ function windowStart(range) {
   } else { // week
     d = getMonday(now);
   }
-  return d.toISOString().replace('T', ' ').slice(0, 19);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} 00:00:00`;
 }
 
 function tallyByMember(range) {
@@ -54,12 +56,11 @@ router.get('/leaderboard', (req, res) => {
 router.get('/history', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const rows = db.prepare(
-    `SELECT c.done_at, c.points, t.emoji AS task_emoji, t.name AS task_name,
+    `SELECT a.done_at, a.points, a.emoji AS task_emoji, a.label AS task_name, a.kind,
             m.name AS member_name, m.emoji AS member_emoji, m.color AS member_color
-     FROM completions c
-     JOIN tasks t ON t.id = c.task_id
-     LEFT JOIN members m ON m.id = c.member_id
-     ORDER BY c.done_at DESC LIMIT ?`
+     FROM activity a
+     LEFT JOIN members m ON m.id = a.member_id
+     ORDER BY a.done_at DESC LIMIT ?`
   ).all(limit);
   res.json(rows);
 });

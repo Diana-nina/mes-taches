@@ -413,6 +413,26 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 
 @media(max-width:560px){.grid,.mgrid{grid-template-columns:1fr;}.day .d-name{font-size:14px;}.nav-btn{font-size:10px;}}
 
+/* ===== Calendrier historique ===== */
+.cal-nav{display:flex;align-items:center;gap:10px;justify-content:space-between;background:var(--paper);border:1px solid var(--line);border-radius:var(--r-card);padding:8px 10px;box-shadow:var(--elev-sm);}
+.cal-arrow{width:40px;height:40px;border:none;border-radius:12px;background:var(--coral-soft);color:var(--coral-deep);font-size:22px;font-weight:900;cursor:pointer;line-height:1;}
+.cal-arrow:active{transform:scale(.9);}
+.cal-range{text-align:center;line-height:1.15;}
+.cal-range b{font-size:15px;color:var(--ink);}
+.cal-range small{display:block;font-size:11px;color:var(--muted);font-weight:700;}
+.cal-today{display:block;margin:8px auto 0;border:none;background:none;color:var(--coral-deep);font-weight:800;font-size:12.5px;cursor:pointer;font-family:'Nunito',sans-serif;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:7px;margin-top:10px;}
+.cal-day{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:7px;min-height:90px;display:flex;flex-direction:column;gap:5px;}
+.cal-day.is-today{border-color:var(--coral);box-shadow:0 0 0 2px var(--coral-soft) inset;}
+.cal-dh{display:flex;align-items:center;justify-content:space-between;font-weight:800;font-size:11.5px;color:var(--muted);}
+.cal-cnt{background:var(--coral);color:#fff;border-radius:10px;padding:0 6px;font-size:10px;font-weight:900;}
+.cal-empty{color:var(--faint);text-align:center;font-size:14px;margin:auto 0;}
+.cal-item{display:flex;align-items:center;gap:4px;background:var(--coral-wash);border-radius:8px;padding:3px 5px;font-size:11px;}
+.cal-item .ci-e{font-size:13px;flex-shrink:0;}
+.cal-item .ci-n{flex:1;min-width:0;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.cal-item .ci-m{flex-shrink:0;font-size:12px;}
+@media(max-width:760px){.cal-grid{grid-template-columns:1fr;}.cal-day{min-height:0;}.cal-item .ci-n{white-space:normal;}}
+
 /* ===== Réglages ===== */
 .set-sec{padding:14px 0;border-bottom:1px solid var(--line);}
 .set-sec:last-child{border-bottom:none;}
@@ -699,19 +719,67 @@ function periodKey(freq){const d=new Date(),y=d.getFullYear();
 const Local={
   _g(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch(e){return d;}},
   _s(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}},
-  donePer(id,pk){return !!this._g('mt_per',{})[id+'|'+pk];},
-  togglePer(id,pk,on,p){const m=this._g('mt_per',{}),k=id+'|'+pk;
-    if(on){m[k]=Date.now();this.log(p.emoji,p.name);}else delete m[k];this._s('mt_per',m);},
-  check(id,pk){return this._g('mt_chk',{})[id+'|'+pk]||{};},
-  setCheck(id,pk,idx,on){const a=this._g('mt_chk',{}),k=id+'|'+pk,o=a[k]||{};if(on)o[idx]=1;else delete o[idx];a[k]=o;this._s('mt_chk',a);},
-  notes(){return this._g('mt_notes',[]);},
-  addNote(text){const a=this.notes();const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-    a.unshift({id,text:text||'',color:NOTE_COLORS[a.length%NOTE_COLORS.length],at:Date.now()});this._s('mt_notes',a);return id;},
-  patchNote(id,patch){const a=this.notes(),n=a.find(x=>x.id===id);if(n)Object.assign(n,patch);this._s('mt_notes',a);},
-  delNote(id){this._s('mt_notes',this.notes().filter(x=>x.id!==id));},
-  log(emoji,name){const h=this._g('mt_lhist',[]);h.unshift({task_emoji:emoji,task_name:name,done_at:new Date().toISOString().slice(0,19).replace('T',' ')});this._s('mt_lhist',h.slice(0,120));},
-  localHist(){return this._g('mt_lhist',[]);},
+  // — Entretien/périodique : cache mémoire ↔ DB (clé "id|period_key") —
+  donePer(id,pk){return !!perCache[id+'|'+pk];},
+  togglePer(id,pk,on,p){
+    const k=id+'|'+pk;
+    if(on)perCache[k]={member_id:null}; else delete perCache[k];
+    if(USE_MOCK){const m=this._g('mt_per',{});if(on)m[k]=Date.now();else delete m[k];this._s('mt_per',m);return;}
+    api.put('/entretien/'+id,{period_key:pk,done:on,member_id:null,label:p.name,emoji:p.emoji}).catch(()=>{});
+  },
+  check(id,pk){return chkCache[id+'|'+pk]||{};},
+  setCheck(id,pk,idx,on){
+    const k=id+'|'+pk,o=Object.assign({},chkCache[k]);if(on)o[idx]=1;else delete o[idx];chkCache[k]=o;
+    if(USE_MOCK){const a=this._g('mt_chk',{});a[k]=o;this._s('mt_chk',a);return;}
+    const p=PERIODIC.find(x=>x.id===id)||{};
+    api.put('/entretien/'+id+'/checks',{period_key:pk,idx,on,label:p.name,emoji:p.emoji,total:p.items?p.items.length:0}).catch(()=>{});
+  },
+  // — Notes : cache mémoire ↔ DB (blob) —
+  notes(){return notesCache;},
+  addNote(text){const id=Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+    notesCache.unshift({id,text:text||'',color:NOTE_COLORS[notesCache.length%NOTE_COLORS.length],at:Date.now()});saveNotes();return id;},
+  patchNote(id,patch){const n=notesCache.find(x=>x.id===id);if(n)Object.assign(n,patch);saveNotes();},
+  delNote(id){notesCache=notesCache.filter(x=>x.id!==id);saveNotes();},
+  // — Historique : désormais 100% côté serveur (table activity) —
+  log(){},
+  localHist(){return [];},
 };
+// Caches entretien/notes + persistance debouncée
+let perCache={},chkCache={},notesCache=[];
+let _notesTimer=null;
+function saveNotes(){
+  if(USE_MOCK){Local._s('mt_notes',notesCache);return;}
+  clearTimeout(_notesTimer);_notesTimer=setTimeout(()=>{api.put('/notes',notesCache).catch(()=>{});},400);
+}
+async function loadEntretien(){
+  if(USE_MOCK){perCache=Local._g('mt_per',{});chkCache=Local._g('mt_chk',{});
+    // normaliser mt_per (valeurs timestamp → objet)
+    Object.keys(perCache).forEach(k=>{if(typeof perCache[k]!=='object')perCache[k]={member_id:null};});return;}
+  try{
+    const rows=await api.get('/entretien/state');
+    perCache={};chkCache={};
+    rows.forEach(r=>{perCache[r.ref+'|'+r.period_key]={member_id:r.member_id};
+      if(r.checks&&Object.keys(r.checks).length)chkCache[r.ref+'|'+r.period_key]=r.checks;});
+    // migration one-shot localStorage → DB
+    if(!localStorage.getItem('mt_per_migrated')){
+      const oldPer=Local._g('mt_per',{}),oldChk=Local._g('mt_chk',{});
+      for(const k of Object.keys(oldPer)){const [id,pk]=k.split('|');if(!id||!pk)continue;
+        const p=PERIODIC.find(x=>x.id===id)||{};perCache[k]={member_id:null};
+        try{await api.put('/entretien/'+id,{period_key:pk,done:true,member_id:null,label:p.name||id,emoji:p.emoji||'🧽'});}catch(e){}}
+      for(const k of Object.keys(oldChk)){const [id,pk]=k.split('|');if(!id||!pk)continue;const o=oldChk[k]||{};
+        const p=PERIODIC.find(x=>x.id===id)||{};chkCache[k]=o;
+        for(const idx of Object.keys(o)){try{await api.put('/entretien/'+id+'/checks',{period_key:pk,idx:Number(idx),on:true,label:p.name||id,emoji:p.emoji||'📦',total:p.items?p.items.length:0});}catch(e){}}}
+      localStorage.setItem('mt_per_migrated','1');
+    }
+  }catch(e){}
+}
+async function loadNotes(){
+  if(USE_MOCK){notesCache=Local._g('mt_notes',[]);return;}
+  try{
+    notesCache=await api.get('/notes')||[];
+    if(!notesCache.length){const ls=Local._g('mt_notes',[]);if(ls.length){notesCache=ls;try{await api.put('/notes',notesCache);}catch(e){}}}
+  }catch(e){}
+}
 const invDoneCount=p=>Object.values(Local.check(p.id,periodKey(p.freq))).filter(Boolean).length;
 const invComplete=p=>p.items&&invDoneCount(p)===p.items.length;
 
@@ -1038,12 +1106,46 @@ async function addShopItem(){
 $('shopLabel').addEventListener('keydown',e=>{if(e.key==='Enter')addShopItem();});
 $('shopPrice').addEventListener('keydown',e=>{if(e.key==='Enter')addShopItem();});
 
-/* ════════ HISTORIQUE ════════ */
+/* ════════ HISTORIQUE + CALENDRIER ════════ */
+const mondayOf=d=>addDays(d,-((d.getDay()+6)%7));
+let histMonday=null; // Date du lundi de la semaine affichée
+function fmtDayMonth(d){return d.getDate()+' '+['jan','fév','mar','avr','mai','juin','juil','aoû','sep','oct','nov','déc'][d.getMonth()];}
+
 async function renderHistory(){
+  if(!histMonday)histMonday=mondayOf(new Date());
   const s=$('histScroll');s.innerHTML='';
+
+  // — Sélecteur de semaine —
+  const mon=histMonday, sun=addDays(mon,6);
+  const isThis=mondayKey(mon)===mondayKey(new Date());
+  const nav=document.createElement('div');nav.className='cal-nav';
+  nav.innerHTML=`<button class="cal-arrow" data-d="-1">‹</button>
+    <div class="cal-range"><b>${fmtDayMonth(mon)} – ${fmtDayMonth(sun)}</b><small>${mon.getFullYear()}${isThis?' · cette semaine':''}</small></div>
+    <button class="cal-arrow" data-d="1">›</button>`;
+  nav.querySelector('[data-d="-1"]').onclick=()=>{histMonday=addDays(histMonday,-7);renderHistory();};
+  nav.querySelector('[data-d="1"]').onclick=()=>{histMonday=addDays(histMonday,7);renderHistory();};
+  s.appendChild(nav);
+  if(!isThis){const t=document.createElement('button');t.className='cal-today';t.textContent='↺ Revenir à cette semaine';t.onclick=()=>{histMonday=mondayOf(new Date());renderHistory();};s.appendChild(t);}
+
+  // — Données de la semaine (journal daté) —
+  let acts=[];try{acts=await api.get('/activity?week='+mondayKey(mon));}catch(e){}
+  const byDay={};acts.forEach(a=>{(byDay[a.date]=byDay[a.date]||[]).push(a);});
+
+  const grid=document.createElement('div');grid.className='cal-grid';
+  const todayK=todayKey();
+  for(let i=0;i<7;i++){
+    const day=addDays(mon,i),dk=dkey(day),items=byDay[dk]||[];
+    const col=document.createElement('div');col.className='cal-day'+(dk===todayK?' is-today':'');
+    let inner=`<div class="cal-dh"><span>${DAYS[i].short} ${day.getDate()}</span>${items.length?`<span class="cal-cnt">${items.length}</span>`:''}</div>`;
+    if(!items.length)inner+=`<div class="cal-empty">—</div>`;
+    else inner+=items.map(a=>`<div class="cal-item"><span class="ci-e">${esc(a.emoji||'✓')}</span><span class="ci-n">${esc(a.label)}</span>${a.member_emoji?`<span class="ci-m">${a.member_emoji}</span>`:''}</div>`).join('');
+    col.innerHTML=inner;grid.appendChild(col);
+  }
+  s.appendChild(grid);
+
+  // — Timeline « récemment » —
   s.appendChild(secHead('Récemment terminé',''));
   let hist=[];try{hist=await api.get('/history?limit=60');}catch(e){}
-  hist=hist.concat(Local.localHist()).sort((a,b)=>String(b.done_at).localeCompare(String(a.done_at))).slice(0,80);
   if(!hist.length){s.appendChild(emptyBox('🌱','Rien de coché pour l\'instant.'));return;}
   let last='';
   hist.forEach(h=>{const dl=dayHead(h.done_at);
@@ -1053,7 +1155,7 @@ async function renderHistory(){
     s.appendChild(it);
   });
 }
-const parseTs=s=>new Date(String(s).replace(' ','T')+'Z');
+const parseTs=s=>new Date(String(s).replace(' ','T'));
 function dayHead(s){if(!s)return '';const d=parseTs(s),n=new Date();
   if(d.toDateString()===n.toDateString())return "Aujourd'hui";
   const y=new Date(n);y.setDate(y.getDate()-1);if(d.toDateString()===y.toDateString())return 'Hier';
@@ -1544,9 +1646,18 @@ function applyMascot(){
   const idx=USE_MOCK?Number(localStorage.getItem('mt2_mascot')||0):(board?board.mascotIdx||0:0);
   $('mascot').textContent=MASCOTS[idx%MASCOTS.length];
 }
+let profilesRemote=null;
 function applyProfileOverrides(){
-  const p=Local._g('mt_profiles',null);if(!p)return;
+  const p=profilesRemote||Local._g('mt_profiles',null);if(!p)return;
   ['younes','shrouk'].forEach(k=>{if(p[k]){if(p[k].name)PROFILES[k].name=p[k].name;if(p[k].emoji)PROFILES[k].emoji=p[k].emoji;}});
+}
+async function loadProfiles(){
+  if(USE_MOCK)return;
+  try{
+    profilesRemote=await api.get('/profiles');
+    if(!profilesRemote){const ls=Local._g('mt_profiles',null);if(ls){profilesRemote=ls;try{await api.put('/profiles',ls);}catch(e){}}}
+    applyProfileOverrides();
+  }catch(e){}
 }
 const MOSQUES=[
   {slug:'el-andalous-ulis',label:'Al-Andalous — Les Ulis'},
@@ -1632,7 +1743,8 @@ function setMosque(slug){Local._s('mt_mosque',slug);mwqCache=null;mwqCacheDay=nu
 function saveProfiles(){
   const data={younes:{},shrouk:{}};
   document.querySelectorAll('#settingsBody [data-pf]').forEach(i=>{data[i.dataset.pf][i.dataset.f]=i.value.trim()||(i.dataset.f==='emoji'?'🙂':'?');});
-  Local._s('mt_profiles',data);applyProfileOverrides();
+  Local._s('mt_profiles',data);profilesRemote=data;applyProfileOverrides();
+  if(!USE_MOCK)api.put('/profiles',data).catch(()=>{});
   showToast('Profils enregistrés');refreshAfterTask();if(typeof renderDeen==='function'&&currentView==='deen')renderDeen();
 }
 
@@ -1658,7 +1770,7 @@ setInterval(renderDate,60000);
   try{
     applyMascot();
     await loadBoard();currentDay=board.today;await loadBoard();
-    await loadDeen();
+    await Promise.all([loadDeen(),loadEntretien(),loadNotes(),loadProfiles()]);
     applyMascot();
     currentView='tasks';switchView('home');
   }catch(e){$('tasksScroll').innerHTML='<div class="empty"><span class="e-emo">😿</span>Impossible de charger.<br>Recharge la page.</div>';}

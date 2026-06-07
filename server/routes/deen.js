@@ -33,8 +33,8 @@ router.put('/:profile', (req, res) => {
   }
   const json = JSON.stringify(data);
   db.prepare(`INSERT INTO deen_state(profile, data, updated_at)
-              VALUES(?, ?, datetime('now'))
-              ON CONFLICT(profile) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`)
+              VALUES(?, ?, datetime('now','localtime'))
+              ON CONFLICT(profile) DO UPDATE SET data = excluded.data, updated_at = datetime('now','localtime')`)
     .run(profile, json);
   const row = db.prepare('SELECT updated_at FROM deen_state WHERE profile = ?').get(profile);
   res.json({ ok: true, updated_at: row.updated_at });

@@ -25,6 +25,10 @@ app.use('/api/shopping', require('./routes/shopping'));
 app.use('/api/rewards', require('./routes/rewards'));
 app.use('/api/mawaqit', require('./routes/mawaqit')); // horaires Mawaqit (mosquée des Ulis)
 app.use('/api/deen', require('./routes/deen')); // streaks Deen par profil (DB)
+app.use('/api/activity', require('./routes/activity')); // journal daté (historique/calendrier)
+app.use('/api/entretien', require('./routes/entretien')); // tâches périodiques (DB)
+app.use('/api/notes', require('./routes/notes')); // notes partagées (DB)
+app.use('/api/profiles', require('./routes/profiles')); // profils partagés (DB)
 
 app.post('/api/rollover', (req, res) => res.json(rollover()));
 app.get('/api/health', (req, res) => res.json({ ok: true }));
