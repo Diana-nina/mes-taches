@@ -22,8 +22,8 @@ router.post('/', (req, res) => {
   const maxOrder = db.prepare(
     `SELECT COALESCE(MAX(sort_order), -1) AS m FROM tasks WHERE freq=? AND IFNULL(day_idx,-1)=IFNULL(?,-1)`
   ).get(b.freq || 'daily', b.day_idx ?? null).m;
-  const info = db.prepare(`INSERT INTO tasks(freq, day_idx, emoji, name, detail, cat, assignee, points, sort_order)
-                           VALUES(@freq,@day_idx,@emoji,@name,@detail,@cat,@assignee,@points,@sort_order)`).run({
+  const info = db.prepare(`INSERT INTO tasks(freq, day_idx, emoji, name, detail, cat, assignee, points, sort_order, date)
+                           VALUES(@freq,@day_idx,@emoji,@name,@detail,@cat,@assignee,@points,@sort_order,@date)`).run({
     freq: b.freq || 'daily',
     day_idx: b.day_idx ?? null,
     emoji: b.emoji || '✨',
@@ -33,6 +33,7 @@ router.post('/', (req, res) => {
     assignee: b.assignee || 'tous',
     points: b.points ?? 1,
     sort_order: maxOrder + 1,
+    date: (b.freq === 'once' && /^\d{4}-\d{2}-\d{2}$/.test(b.date || '')) ? b.date : null,
   });
   res.json(db.prepare('SELECT * FROM tasks WHERE id = ?').get(info.lastInsertRowid));
 });

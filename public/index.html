@@ -247,9 +247,12 @@ body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
 .m-close svg{width:18px;height:18px;}
 .m-scroll{overflow-y:auto;flex:1;margin-bottom:18px;display:flex;flex-direction:column;gap:9px;
   scrollbar-width:thin;scrollbar-color:#f0cdd9 transparent;}
-.erow{display:flex;gap:9px;align-items:center;}
+.erow{display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
 .erow .ei{width:54px;text-align:center;font-size:20px;}
-.erow .ni{flex:1;min-width:0;}
+.erow .ni{flex:1;min-width:120px;}
+.rec-toggle{border:1.5px solid var(--coral-soft);background:var(--coral-wash);color:var(--coral-deep);border-radius:11px;padding:8px 10px;font-family:'Nunito',sans-serif;font-weight:800;font-size:12px;cursor:pointer;white-space:nowrap;}
+.rec-toggle[data-rec="0"]{border-color:var(--lav-line);background:var(--lav-soft);color:var(--lav);}
+.rec-tag{font-size:11px;font-weight:800;color:var(--lav);background:var(--lav-soft);border-radius:9px;padding:4px 8px;white-space:nowrap;}
 .erow input{font-family:'Nunito',sans-serif;font-weight:800;font-size:15px;background:var(--bg);
   border:1.5px solid var(--line);border-radius:11px;padding:11px;outline:none;color:var(--ink);transition:border-color .15s;}
 .erow input:focus{border-color:var(--coral);background:#fff;}
@@ -1610,25 +1613,39 @@ $('deenAddOverlay').addEventListener('click',e=>{if(e.target.id==='deenAddOverla
 let editDayIdx=null,editOriginalIds=[];
 function openEdit(){
   if(!board)return;editDayIdx=currentDay;
-  $('modalTitle').textContent='Tâches du '+DAYS[editDayIdx].name.toLowerCase();
+  const isToday=dkey(selDate)===todayKey();
+  $('modalTitle').textContent='Activités du '+DAYS[editDayIdx].name.toLowerCase()+(isToday?" (aujourd'hui)":' '+selDate.getDate());
   editOriginalIds=(board.daily||[]).map(t=>t.id);
-  const l=$('editList');l.innerHTML='';(board.daily||[]).forEach(t=>l.appendChild(eRow(t.id,t.e,t.n)));
+  const l=$('editList');l.innerHTML='';(board.daily||[]).forEach(t=>l.appendChild(eRow(t.id,t.e,t.n,false,t.freq)));
   $('overlay').classList.add('open');
 }
-function eRow(id,emoji,name){
+function eRow(id,emoji,name,isNew,freq){
   const r=document.createElement('div');r.className='erow';r.dataset.id=id||'';
+  let rec='';
+  if(isNew){
+    rec=`<button class="rec-toggle" data-rec="1" type="button"></button>`;
+  }else if(freq==='once'){
+    rec=`<span class="rec-tag">📌 ponctuel</span>`;
+  }
   r.innerHTML=`<input class="ei" value="${esc(emoji)}" data-f="e" maxlength="4">
     <input class="ni" value="${esc(name)}" data-f="n" placeholder="Nom de la tâche">
+    ${rec}
     <button class="del" aria-label="Supprimer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 7h14M10 7V5h4v2M6 7l1 13h10l1-13"/></svg></button>`;
-  r.querySelector('.del').onclick=()=>r.remove();return r;
+  r.querySelector('.del').onclick=()=>r.remove();
+  const rt=r.querySelector('.rec-toggle');
+  if(rt){const upd=()=>{rt.textContent=rt.dataset.rec==='1'?('🔁 tous les '+DAYS[editDayIdx].name.toLowerCase()):('📌 le '+selDate.getDate()+' '+['jan','fév','mar','avr','mai','juin','juil','aoû','sep','oct','nov','déc'][selDate.getMonth()]);};
+    rt.onclick=()=>{rt.dataset.rec=rt.dataset.rec==='1'?'0':'1';upd();};upd();}
+  return r;
 }
-function addEditRow(){const l=$('editList');const r=eRow('','✨','');l.appendChild(r);r.querySelector('.ni').focus();}
+function addEditRow(){const l=$('editList');const r=eRow('','✨','',true);l.appendChild(r);r.querySelector('.ni').focus();}
 async function saveEdit(){
   const rows=[...document.querySelectorAll('#editList .erow')];const kept=[];
   for(const r of rows){const id=r.dataset.id;const emoji=r.querySelector('[data-f="e"]').value||'✨';
     const name=r.querySelector('[data-f="n"]').value.trim();if(!name)continue;
     if(id){kept.push(Number(id));await api.patch('/tasks/'+id,{emoji,name});}
-    else await api.post('/tasks',{emoji,name,freq:'daily',day_idx:editDayIdx,cat:'cat-maison',points:1});}
+    else{const rt=r.querySelector('.rec-toggle');const once=rt&&rt.dataset.rec==='0';
+      if(once)await api.post('/tasks',{emoji,name,freq:'once',date:dkey(selDate),cat:'cat-maison',points:1});
+      else await api.post('/tasks',{emoji,name,freq:'daily',day_idx:editDayIdx,cat:'cat-maison',points:1});}}
   for(const oid of editOriginalIds)if(!kept.includes(oid))await api.del('/tasks/'+oid);
   closeEdit();showToast('Enregistré');await loadBoard();refreshAfterTask();
 }
